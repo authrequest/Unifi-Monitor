@@ -40,11 +40,7 @@ Ensure you have the following installed:
 
 ## Usage
 
-Before running the project, make sure to configure the Discord webhook URL. Open the `all_products.go` file and set the `DiscordWebhookURL` variable:
-
-```go
-var DiscordWebhookURL = "your-webhook-url"
-```
+Before running the project, make sure to configure the Discord webhook URL. Open the `all_products.go` file and set the `DiscordWebhookURL` variable
 
 Run the project:
 
