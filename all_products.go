@@ -17,7 +17,7 @@ import (
 
 const (
 	HomeURL           = "https://store.ui.com/us/en"
-	DiscordWebhookURL = "" // Enter your Discord webhook URL here
+	DiscordWebhookURL = "https://discord.com/api/webhooks/1316305402287095818/CGK4ft4GeE_GCubvCE82gJtLkO9L25RWlww73y5dGG4ywqPXersBcoVtCWcrGKkvY8Aj" // Enter your Discord webhook URL here
 	ProductsFile      = "products.json"
 )
 
@@ -106,6 +106,11 @@ func (store *UnifiStore) loadKnownProducts() {
 	if err != nil {
 		if os.IsNotExist(err) {
 			logger.Info().Msg("Products.json file not found, creating new file")
+			file, err = os.Create(ProductsFile)
+			if err != nil {
+				logger.Error().Err(err).Msg("Failed to create products.json file")
+				return
+			}
 			store.Initialized = false
 			return
 		}
@@ -114,6 +119,16 @@ func (store *UnifiStore) loadKnownProducts() {
 
 	}
 	defer file.Close()
+
+	fileInfo, err := file.Stat()
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to get file info")
+		return
+	}
+
+	if fileInfo.Size() == 0 {
+		return
+	}
 
 	var products []Product
 	if err := json.NewDecoder(file).Decode(&products); err != nil {
@@ -137,17 +152,29 @@ func (store *UnifiStore) loadKnownProducts() {
 
 func (store *UnifiStore) saveKnownProducts(filename string, newProducts []Product) error {
 	logger.Info().Msg("Saving known products...")
-	file, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	store.Mutex.Lock()
+	defer store.Mutex.Unlock()
+
+	// Read existing products from the file
+	var existingProducts []Product
+	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open known products file: %v", err)
 	}
 	defer file.Close()
 
-	encoder := json.NewEncoder(file)
-	for _, product := range newProducts {
-		if err := encoder.Encode(product); err != nil {
-			return fmt.Errorf("failed to encode product: %v", err)
-		}
+	if err := json.NewDecoder(file).Decode(&existingProducts); err != nil && err != io.EOF {
+		return fmt.Errorf("failed to decode existing products: %v", err)
+	}
+
+	// Append new products to the existing products
+	existingProducts = append(existingProducts, newProducts...)
+
+	// Write the combined list back to the file
+	file.Seek(0, 0)
+	file.Truncate(0)
+	if err := json.NewEncoder(file).Encode(existingProducts); err != nil {
+		return fmt.Errorf("failed to encode products: %v", err)
 	}
 
 	return nil
