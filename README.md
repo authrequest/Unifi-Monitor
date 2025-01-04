@@ -1,4 +1,4 @@
-# Unifii Monitor
+# Unifi New Product Monitor
 
 Welcome to my **Unifi Monitor** script, a comprehensive and efficient solution for [Monitoring https://store.ui.com for NEW products].
 
