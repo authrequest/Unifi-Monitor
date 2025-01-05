@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -13,13 +14,15 @@ import (
 
 	discordwebhook "github.com/bensch777/discord-webhook-golang"
 	"github.com/rs/zerolog"
+	"gopkg.in/yaml.v2"
 )
 
 const (
-	HomeURL           = "https://store.ui.com/us/en"
-	DiscordWebhookURL = "https://discord.com/api/webhooks/1316305402287095818/CGK4ft4GeE_GCubvCE82gJtLkO9L25RWlww73y5dGG4ywqPXersBcoVtCWcrGKkvY8Aj" // Enter your Discord webhook URL here
-	ProductsFile      = "products.json"
+	HomeURL      = "https://store.ui.com/us/en"
+	ProductsFile = "products.json"
 )
+
+var DiscordWebhookURL string
 
 var logger = zerolog.New(
 	zerolog.ConsoleWriter{
@@ -70,6 +73,10 @@ type PageProps struct {
 
 type Response struct {
 	PageProps PageProps `json:"pageProps"`
+}
+
+type Config struct {
+	DiscordWebhookURL string `yaml:"discord_webhook_url"`
 }
 
 func CreateUnifiStore() *UnifiStore {
@@ -330,6 +337,27 @@ func (store *UnifiStore) sendToDiscord(product Product) {
 	}
 }
 
+func readEnv(key, defaultValue string) string {
+	value, exists := os.LookupEnv(key)
+	if exists {
+		return value
+	}
+
+	configFile := "/etc/config.yml"
+	if _, err := os.Stat(configFile); err == nil {
+		data, err := ioutil.ReadFile(configFile)
+		if err == nil {
+			var config Config
+			if err := yaml.Unmarshal(data, &config); err == nil {
+				if key == "DISCORD_WEBHOOK_URL" {
+					return config.DiscordWebhookURL
+				}
+			}
+		}
+	}
+	return defaultValue
+}
+
 // Start begins an infinite loop to monitor and fetch new products from the Unifi store.
 // It iterates through each category in the store, fetching products and checking if
 // they are new by comparing against known product IDs. If a new product is found, it
@@ -379,6 +407,10 @@ func (store *UnifiStore) Start() {
 
 func main() {
 	logger.Info().Msg("Initializing...")
+	DiscordWebhookURL = readEnv("DISCORD_WEBHOOK_URL", "")
+	if DiscordWebhookURL == "" {
+		logger.Fatal().Msg("DISCORD_WEBHOOK_URL is not set. Please set it in the environment or in the config file.")
+	}
 	store := CreateUnifiStore()
 	go store.Start()
 	// Keep the main thread alive
