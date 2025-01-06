@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -113,7 +112,7 @@ func (store *UnifiStore) loadKnownProducts() {
 	if err != nil {
 		if os.IsNotExist(err) {
 			logger.Info().Msg("Products.json file not found, creating new file")
-			file, err = os.Create(ProductsFile)
+			_, err = os.Create(ProductsFile)
 			if err != nil {
 				logger.Error().Err(err).Msg("Failed to create products.json file")
 				return
@@ -229,7 +228,7 @@ func (store *UnifiStore) fetchBuildID() error {
 		logger.Info().Msg(fmt.Sprintf("Extracted build ID: %s", buildID))
 		return nil
 	}
-	return fmt.Errorf("Failed to extract build ID")
+	return fmt.Errorf("failed to extract build ID")
 }
 
 // fetchProducts fetches the products for a given category from the Unifi store.
@@ -252,7 +251,7 @@ func (store *UnifiStore) fetchProducts(category string) ([]Product, error) {
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to create request: %v", err)
+		return nil, fmt.Errorf("failed to create request: %v", err)
 	}
 
 	for k, v := range store.Headers {
@@ -262,18 +261,18 @@ func (store *UnifiStore) fetchProducts(category string) ([]Product, error) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to fetch products: %v", err)
+		return nil, fmt.Errorf("failed to fetch products: %v", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to read response body: %v", err)
+		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
 	var response Response
 	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("Failed to unmarshal JSON: %v", err)
+		return nil, fmt.Errorf("failed to unmarshal JSON: %v", err)
 	}
 
 	var products []Product
@@ -344,14 +343,12 @@ func readEnv(key, defaultValue string) string {
 	}
 
 	configFile := "/etc/config.yml"
-	if _, err := os.Stat(configFile); err == nil {
-		data, err := ioutil.ReadFile(configFile)
-		if err == nil {
-			var config Config
-			if err := yaml.Unmarshal(data, &config); err == nil {
-				if key == "DISCORD_WEBHOOK_URL" {
-					return config.DiscordWebhookURL
-				}
+	data, err := os.ReadFile(configFile)
+	if err == nil {
+		var config Config
+		if err := yaml.Unmarshal(data, &config); err == nil {
+			if key == "DISCORD_WEBHOOK_URL" {
+				return config.DiscordWebhookURL
 			}
 		}
 	}
