@@ -1,3 +1,5 @@
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/L3L418JUWC)
+
 # Unifi New Product Monitor
 
 Welcome to my **Unifi Monitor** script, a comprehensive and efficient solution for [Monitoring https://store.ui.com for NEW products].
