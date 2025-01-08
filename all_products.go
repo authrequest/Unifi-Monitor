@@ -342,7 +342,7 @@ func readEnv(key, defaultValue string) string {
 		return value
 	}
 
-	configFile := "/etc/config.yml"
+	configFile := "/etc/unifi-monitor.yml"
 	data, err := os.ReadFile(configFile)
 	if err == nil {
 		var config Config
