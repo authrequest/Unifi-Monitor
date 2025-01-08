@@ -60,7 +60,7 @@ Contributions are what make the open-source community such an amazing place to l
 
 ## License
 
-Distributed under the [MIT License](LICENSE). See `LICENSE` for more information.
+Distributed under the [GNU GPL v3.0](LICENSE). See `LICENSE` for more information.
 
 ---
 
