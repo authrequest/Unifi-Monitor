@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"regexp"
@@ -78,6 +82,23 @@ type Config struct {
 	DiscordWebhookURL string `yaml:"discord_webhook_url"`
 }
 
+var (
+	// Compile regex pattern once at package level for better performance
+	buildIDPattern = regexp.MustCompile(`https://assets-new\.ecomm\.ui\.com/_next/static/([a-zA-Z0-9]+)/_ssgManifest\.js`)
+
+	// Use a custom HTTP client with timeouts and keep-alive
+	httpClient = &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 100,
+			IdleConnTimeout:     90 * time.Second,
+			DisableCompression:  false,
+			ForceAttemptHTTP2:   true,
+		},
+	}
+)
+
 func CreateUnifiStore() *UnifiStore {
 	store := &UnifiStore{
 		Headers: map[string]string{
@@ -112,7 +133,7 @@ func (store *UnifiStore) loadKnownProducts() {
 	if err != nil {
 		if os.IsNotExist(err) {
 			logger.Info().Msg("Products.json file not found, creating new file")
-			_, err = os.Create(ProductsFile)
+			file, err = os.Create(ProductsFile)
 			if err != nil {
 				logger.Error().Err(err).Msg("Failed to create products.json file")
 				return
@@ -193,42 +214,76 @@ func (store *UnifiStore) saveKnownProducts(filename string, newProducts []Produc
 // it logs an error and returns an error.
 
 func (store *UnifiStore) fetchBuildID() error {
-	logger.Info().Msg("Fetching build ID...")
-	req, err := http.NewRequest("GET", HomeURL, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, HomeURL, nil)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to fetch build ID")
-		return err
+		return fmt.Errorf("failed to create request: %w", err)
 	}
+
+	// Set headers in a single loop
 	for key, value := range store.Headers {
 		req.Header.Set(key, value)
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to fetch build ID")
-		return err
+		return fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		logger.Error().Err(err).Msg("Failed to Read Response")
-		return err
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	soup := string(body)
-	regexPattern := `https://assets\.ecomm\.ui\.com/_next/static/([a-zA-Z0-9]+)/_buildManifest\.js`
-	re := regexp.MustCompile(regexPattern)
+	// Use a buffer pool for better memory management
+	buffer := bufPool.Get().(*bytes.Buffer)
+	buffer.Reset()
+	defer bufPool.Put(buffer)
 
-	matches := re.FindStringSubmatch(soup)
-	if len(matches) > 1 {
-		buildID := matches[1]
-		store.BaseURL = fmt.Sprintf("https://store.ui.com/_next/data/%s/us/en.json", buildID)
-		logger.Info().Msg(fmt.Sprintf("Extracted build ID: %s", buildID))
+	// Use io.Copy instead of ioutil.ReadAll for better memory efficiency
+	if _, err := io.Copy(buffer, resp.Body); err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	matches := buildIDPattern.FindStringSubmatch(buffer.String())
+	if len(matches) < 2 {
+		return fmt.Errorf("failed to extract build ID from response")
+	}
+
+	buildID := matches[1]
+	store.BaseURL = fmt.Sprintf("https://store.ui.com/_next/data/%s/us/en.json", buildID)
+	logger.Info().Str("buildID", buildID).Msg("Successfully extracted build ID")
+
+	return nil
+}
+
+// Create a buffer pool for reusing buffers
+var bufPool = sync.Pool{
+	New: func() interface{} {
+		return new(bytes.Buffer)
+	},
+}
+
+// Add a retry mechanism for better reliability
+func (store *UnifiStore) fetchBuildIDWithRetry(maxRetries int) error {
+	var lastErr error
+	for i := 0; i < maxRetries; i++ {
+		if err := store.fetchBuildID(); err != nil {
+			lastErr = err
+			backoff := time.Duration(math.Pow(2, float64(i))) * time.Second
+			logger.Warn().
+				Err(err).
+				Int("attempt", i+1).
+				Dur("backoff", backoff).
+				Msg("Retrying fetch build ID")
+			time.Sleep(backoff)
+			continue
+		}
 		return nil
 	}
-	return fmt.Errorf("failed to extract build ID")
+	return fmt.Errorf("failed after %d retries: %w", maxRetries, lastErr)
 }
 
 // fetchProducts fetches the products for a given category from the Unifi store.
@@ -251,7 +306,7 @@ func (store *UnifiStore) fetchProducts(category string) ([]Product, error) {
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %v", err)
+		return nil, fmt.Errorf("Failed to create request: %v", err)
 	}
 
 	for k, v := range store.Headers {
@@ -261,18 +316,18 @@ func (store *UnifiStore) fetchProducts(category string) ([]Product, error) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch products: %v", err)
+		return nil, fmt.Errorf("Failed to fetch products: %v", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
+		return nil, fmt.Errorf("Failed to read response body: %v", err)
 	}
 
 	var response Response
 	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JSON: %v", err)
+		return nil, fmt.Errorf("Failed to unmarshal JSON: %v", err)
 	}
 
 	var products []Product
@@ -342,13 +397,15 @@ func readEnv(key, defaultValue string) string {
 		return value
 	}
 
-	configFile := "/etc/unifi-monitor.yml"
-	data, err := os.ReadFile(configFile)
-	if err == nil {
-		var config Config
-		if err := yaml.Unmarshal(data, &config); err == nil {
-			if key == "DISCORD_WEBHOOK_URL" {
-				return config.DiscordWebhookURL
+	configFile := "/etc/config.yml"
+	if _, err := os.Stat(configFile); err == nil {
+		data, err := ioutil.ReadFile(configFile)
+		if err == nil {
+			var config Config
+			if err := yaml.Unmarshal(data, &config); err == nil {
+				if key == "DISCORD_WEBHOOK_URL" {
+					return config.DiscordWebhookURL
+				}
 			}
 		}
 	}
@@ -366,9 +423,9 @@ func (store *UnifiStore) Start() {
 	logger.Info().Msg("Starting Monitor")
 
 	for {
-		// Need to fetch the build ID in loop in case it changes
-		if err := store.fetchBuildID(); err != nil {
-			logger.Fatal().Err(err).Msg("Failed to fetch build ID")
+		// Use retry mechanism with 3 attempts
+		if err := store.fetchBuildIDWithRetry(3); err != nil {
+			logger.Fatal().Err(err).Msg("Failed to fetch build ID after retries")
 		}
 		for _, category := range store.Categories {
 			products, err := store.fetchProducts(category)
