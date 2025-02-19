@@ -182,25 +182,23 @@ func (store *UnifiStore) saveKnownProducts(filename string, newProducts []Produc
 	store.Mutex.Lock()
 	defer store.Mutex.Unlock()
 
-	// Read existing products from the file
-	var existingProducts []Product
-	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0644)
+	// Convert store's known products map to a slice
+	var allProducts []Product
+	for _, product := range store.KnownProducts {
+		allProducts = append(allProducts, product)
+	}
+
+	// Create or truncate the file
+	file, err := os.Create(filename)
 	if err != nil {
-		return fmt.Errorf("failed to open known products file: %v", err)
+		return fmt.Errorf("failed to create/truncate file: %v", err)
 	}
 	defer file.Close()
 
-	if err := json.NewDecoder(file).Decode(&existingProducts); err != nil && err != io.EOF {
-		return fmt.Errorf("failed to decode existing products: %v", err)
-	}
-
-	// Append new products to the existing products
-	existingProducts = append(existingProducts, newProducts...)
-
-	// Write the combined list back to the file
-	file.Seek(0, 0)
-	file.Truncate(0)
-	if err := json.NewEncoder(file).Encode(existingProducts); err != nil {
+	// Write all products as a single JSON array
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "    ") // Optional: adds pretty printing
+	if err := encoder.Encode(allProducts); err != nil {
 		return fmt.Errorf("failed to encode products: %v", err)
 	}
 
@@ -461,7 +459,7 @@ func (store *UnifiStore) Start() {
 
 func main() {
 	logger.Info().Msg("Initializing...")
-	DiscordWebhookURL = readEnv("DISCORD_WEBHOOK_URL", "")
+	DiscordWebhookURL = readEnv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/1337950283325505566/cDU5e6buWobnPbhW44-x2qNc_6mZZlG5dzdEF__uVDOr2cp0XHzJ6y_zryMD6I6FM4Dm")
 	if DiscordWebhookURL == "" {
 		logger.Fatal().Msg("DISCORD_WEBHOOK_URL is not set. Please set it in the environment or in the config file.")
 	}
