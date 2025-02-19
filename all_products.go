@@ -459,7 +459,7 @@ func (store *UnifiStore) Start() {
 
 func main() {
 	logger.Info().Msg("Initializing...")
-	DiscordWebhookURL = readEnv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/1337950283325505566/cDU5e6buWobnPbhW44-x2qNc_6mZZlG5dzdEF__uVDOr2cp0XHzJ6y_zryMD6I6FM4Dm")
+	DiscordWebhookURL = readEnv("DISCORD_WEBHOOK_URL", "")
 	if DiscordWebhookURL == "" {
 		logger.Fatal().Msg("DISCORD_WEBHOOK_URL is not set. Please set it in the environment or in the config file.")
 	}
