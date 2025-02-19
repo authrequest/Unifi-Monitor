@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -21,8 +22,9 @@ import (
 )
 
 const (
-	HomeURL      = "https://store.ui.com/us/en"
-	ProductsFile = "products.json"
+	HomeURL       = "https://store.ui.com/us/en"
+	ProductsFile  = "products.json"
+	SaveBatchSize = 100 // Adjust based on your needs
 )
 
 var DiscordWebhookURL string
@@ -45,6 +47,7 @@ type UnifiStore struct {
 	KnownProducts   map[string]Product
 	Mutex           sync.Mutex
 	Initialized     bool
+	pendingProducts []Product
 }
 
 type Product struct {
@@ -138,6 +141,7 @@ func (store *UnifiStore) loadKnownProducts() {
 				logger.Error().Err(err).Msg("Failed to create products.json file")
 				return
 			}
+			file.Close()
 			store.Initialized = false
 			return
 		}
@@ -182,24 +186,44 @@ func (store *UnifiStore) saveKnownProducts(filename string, newProducts []Produc
 	store.Mutex.Lock()
 	defer store.Mutex.Unlock()
 
-	// Convert store's known products map to a slice
-	var allProducts []Product
+	// Pre-allocate slice with known capacity to avoid reallocations
+	allProducts := make([]Product, 0, len(store.KnownProducts)+len(newProducts))
+
+	// Use a map for O(1) lookup to avoid duplicates
+	seen := make(map[string]struct{}, len(store.KnownProducts))
+
+	// Process existing products
 	for _, product := range store.KnownProducts {
 		allProducts = append(allProducts, product)
+		seen[product.ID] = struct{}{}
 	}
 
-	// Create or truncate the file
+	// Process new products
+	for _, product := range newProducts {
+		if _, exists := seen[product.ID]; !exists {
+			allProducts = append(allProducts, product)
+			store.KnownProducts[product.ID] = product
+			store.KnownProductIDs[product.ID] = true
+		}
+	}
+
+	// Use buffered writer for better I/O performance
 	file, err := os.Create(filename)
 	if err != nil {
-		return fmt.Errorf("failed to create/truncate file: %v", err)
+		return fmt.Errorf("failed to create file: %w", err)
 	}
 	defer file.Close()
 
-	// Write all products as a single JSON array
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "    ") // Optional: adds pretty printing
+	bufWriter := bufio.NewWriter(file)
+	encoder := json.NewEncoder(bufWriter)
+	encoder.SetIndent("", "    ")
+
 	if err := encoder.Encode(allProducts); err != nil {
-		return fmt.Errorf("failed to encode products: %v", err)
+		return fmt.Errorf("failed to encode products: %w", err)
+	}
+
+	if err := bufWriter.Flush(); err != nil {
+		return fmt.Errorf("failed to flush buffer: %w", err)
 	}
 
 	return nil
@@ -421,10 +445,24 @@ func (store *UnifiStore) Start() {
 	logger.Info().Msg("Starting Monitor")
 
 	for {
-		// Use retry mechanism with 3 attempts
 		if err := store.fetchBuildIDWithRetry(3); err != nil {
 			logger.Fatal().Err(err).Msg("Failed to fetch build ID after retries")
 		}
+
+		store.Mutex.Lock()
+		pendingCount := len(store.pendingProducts)
+		store.Mutex.Unlock()
+
+		// Save if we have enough pending products
+		if pendingCount >= SaveBatchSize {
+			if err := store.saveKnownProducts(ProductsFile, store.pendingProducts); err != nil {
+				logger.Error().Err(err).Msg("Failed to save known products")
+			}
+			store.Mutex.Lock()
+			store.pendingProducts = store.pendingProducts[:0] // Clear slice while preserving capacity
+			store.Mutex.Unlock()
+		}
+
 		for _, category := range store.Categories {
 			products, err := store.fetchProducts(category)
 			if err != nil {
@@ -446,9 +484,9 @@ func (store *UnifiStore) Start() {
 			store.Mutex.Unlock()
 
 			if len(newProducts) > 0 {
-				if err := store.saveKnownProducts(ProductsFile, newProducts); err != nil {
-					logger.Error().Err(err).Msg("Failed to save known products")
-				}
+				store.Mutex.Lock()
+				store.pendingProducts = append(store.pendingProducts, newProducts...)
+				store.Mutex.Unlock()
 			}
 			// logger.Info().Msg(fmt.Sprintf("Fetched %d products for category: %s", len(products), category))
 		}
