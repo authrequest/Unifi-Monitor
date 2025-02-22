@@ -1,7 +1,7 @@
 # Discord webhook URL for sending notifications
 # Required: Yes
 # Example: https://discord.com/api/webhooks/123456789/abcdef...
-discord_webhook_url: "https://discord.com/api/webhooks/1337950283325505566/cDU5e6buWobnPbhW44-x2qNc_6mZZlG5dzdEF__uVDOr2cp0XHzJ6y_zryMD6I6FM4Dm"
+discord_webhook_url: ""
 
 # Number of products to save in each batch operation
 # Required: No
