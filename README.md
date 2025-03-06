@@ -22,7 +22,13 @@ To get a local copy up and running, follow these simple steps.
 
 Ensure you have the following installed:
 
-- Go programming language
+- Go programming language Version 1.23
+
+#### On Debian
+
+```bash
+apt install golang-1.23
+```
 
 ### Installation
 
