@@ -51,7 +51,13 @@ Before running the program, make sure to configure the Discord webhook URL.
 Run the project:
 
 ```bash
-go run all_products.go or go run *
+go run all_products.go
+```
+
+or
+
+```bash
+go run *
 ```
 
 ## Contributing
