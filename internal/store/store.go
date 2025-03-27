@@ -23,7 +23,7 @@ import (
 	"all-unifi-monitor/pkg/logger"
 )
 
-var buildIDPattern = regexp.MustCompile(`https://assets-new\.ecomm\.ui\.com/_next/static/([a-zA-Z0-9]+)/_ssgManifest\.js`)
+var buildIDPattern = regexp.MustCompile(`https://[^/]+/_next/static/([a-zA-Z0-9]+)/_ssgManifest\.js`)
 
 type UnifiStore struct {
 	cfg             *config.Config
